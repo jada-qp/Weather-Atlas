@@ -707,9 +707,9 @@ export default function App() {
               strokeLinejoin="round"
               aria-hidden="true"
             >
-              <circle cx="12" cy="8" r="3.5" />
-              <path d="M4 18c1.8-2.6 4.5-3.9 8-3.9s6.2 1.3 8 3.9" />
-              <path d="M7 18h10" />
+              <circle cx="6.5" cy="6.5" r="2.6" />
+              <path d="M6.5 2.5v1.4M6.5 9.9v1.4M2.5 6.5h1.4M9.9 6.5h1.4" />
+              <path d="M8 15.5a3.5 3.5 0 0 1 6.8-1.1 2.6 2.6 0 0 1 .5 0 2.6 2.6 0 1 1 .2 5.2H10.5a2.8 2.8 0 1 1-1.5-4.1Z" />
             </svg>
           </div>
           <div className="leading-tight">
@@ -721,16 +721,16 @@ export default function App() {
             </div>
           </div>
         </div>
-        <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end">
-          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:gap-2">
-            <div className="flex w-full overflow-hidden rounded-full border border-stone-300 text-[10px] uppercase tracking-[0.3em] text-stone-600 dark:border-stone-700 dark:text-stone-300">
+        <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end sm:gap-4 md:gap-5">
+          <div className="grid w-full grid-cols-[1fr_1.35fr] gap-2 sm:flex sm:w-auto sm:gap-3">
+            <div className="flex w-full items-stretch overflow-hidden rounded-full border border-stone-300 text-[10px] uppercase tracking-[0.3em] text-stone-600 dark:border-stone-700 dark:text-stone-300">
               <button
                 type="button"
                 onClick={() =>
                   setUnits((prev) => ({ ...prev, temp: "c" }))
                 }
                 aria-pressed={units.temp === "c"}
-                className={`px-3 py-2 transition ${
+                className={`flex-1 px-3 py-2 text-center leading-none transition sm:px-4 ${
                   units.temp === "c"
                     ? "bg-stone-900 text-stone-50 dark:bg-stone-50 dark:text-stone-900"
                     : "hover:bg-stone-100 dark:hover:bg-stone-800"
@@ -744,7 +744,7 @@ export default function App() {
                   setUnits((prev) => ({ ...prev, temp: "f" }))
                 }
                 aria-pressed={units.temp === "f"}
-                className={`px-3 py-2 transition ${
+                className={`flex-1 px-3 py-2 text-center leading-none transition sm:px-4 ${
                   units.temp === "f"
                     ? "bg-stone-900 text-stone-50 dark:bg-stone-50 dark:text-stone-900"
                     : "hover:bg-stone-100 dark:hover:bg-stone-800"
@@ -753,14 +753,14 @@ export default function App() {
                 F
               </button>
             </div>
-            <div className="flex w-full overflow-hidden rounded-full border border-stone-300 text-[10px] uppercase tracking-[0.25em] text-stone-600 dark:border-stone-700 dark:text-stone-300">
+            <div className="flex w-full min-w-[120px] items-stretch overflow-hidden rounded-full border border-stone-300 text-[10px] normal-case tracking-normal text-stone-600 sm:min-w-[150px] sm:text-[10px] sm:uppercase sm:tracking-[0.25em] dark:border-stone-700 dark:text-stone-300">
               <button
                 type="button"
                 onClick={() =>
                   setUnits((prev) => ({ ...prev, speed: "kph" }))
                 }
                 aria-pressed={units.speed === "kph"}
-                className={`px-3 py-2 transition ${
+                className={`flex-1 px-2 py-2 text-center leading-none whitespace-nowrap transition sm:px-4 ${
                   units.speed === "kph"
                     ? "bg-stone-900 text-stone-50 dark:bg-stone-50 dark:text-stone-900"
                     : "hover:bg-stone-100 dark:hover:bg-stone-800"
@@ -774,7 +774,7 @@ export default function App() {
                   setUnits((prev) => ({ ...prev, speed: "mph" }))
                 }
                 aria-pressed={units.speed === "mph"}
-                className={`px-3 py-2 transition ${
+                className={`flex-1 px-2 py-2 text-center leading-none whitespace-nowrap transition sm:px-4 ${
                   units.speed === "mph"
                     ? "bg-stone-900 text-stone-50 dark:bg-stone-50 dark:text-stone-900"
                     : "hover:bg-stone-100 dark:hover:bg-stone-800"
