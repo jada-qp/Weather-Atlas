@@ -40,6 +40,28 @@ const formatShortDate = (value) => {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
 
+const formatUpdatedAt = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+const getWeatherEffect = (condition) => {
+  const normalized = (condition || "").toLowerCase();
+  if (!normalized) return "clear";
+  if (/(snow|sleet|blizzard|ice|freezing)/.test(normalized)) return "snow";
+  if (/(rain|drizzle|thunder|storm)/.test(normalized)) return "rain";
+  if (/(mist|fog|haze|smoke)/.test(normalized)) return "mist";
+  if (/(cloud|overcast)/.test(normalized)) return "clouds";
+  return "clear";
+};
+
 export default function App() {
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem("theme");
@@ -151,6 +173,8 @@ export default function App() {
   const pressure = weather?.current?.pressure;
   const visibility = weather?.current?.visibility;
   const precip = weather?.current?.precip;
+  const lastUpdatedLabel = formatUpdatedAt(weather?.fetchedAt);
+  const weatherEffect = getWeatherEffect(description);
 
   const metrics = [
     {
@@ -168,8 +192,17 @@ export default function App() {
   const forecastNote = extendedData?.forecastError || "";
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-stone-100 text-stone-900 transition-colors duration-300 dark:bg-neutral-950 dark:text-stone-100">
-      <div className="pointer-events-none absolute inset-0">
+    <div
+      className={`relative min-h-screen overflow-hidden text-stone-900 transition-colors duration-300 dark:text-stone-100 weather-bg-${weatherEffect}`}
+    >
+      <div
+        className={`pointer-events-none absolute inset-0 weather-effect weather-effect--${weatherEffect}`}
+        aria-hidden="true"
+      >
+        <div className="weather-effect__layer" />
+        <div className="weather-effect__layer weather-effect__layer--secondary" />
+      </div>
+      <div className="pointer-events-none absolute inset-0 weather-orbs">
         <div className="absolute -top-32 right-10 h-72 w-72 rounded-full bg-amber-200/40 blur-3xl animate-pulse-soft dark:bg-amber-500/10" />
         <div className="absolute bottom-0 left-0 h-64 w-64 rounded-full bg-emerald-200/30 blur-3xl animate-float-slow dark:bg-emerald-400/10" />
       </div>
@@ -344,6 +377,11 @@ export default function App() {
                 {status === "ready" && !localTime && "Weather updated"}
                 {status === "idle" && "Pick a city to begin"}
               </p>
+              {lastUpdatedLabel ? (
+                <p className="text-[10px] uppercase tracking-[0.3em] text-stone-400 dark:text-stone-500">
+                  Last updated {lastUpdatedLabel}
+                </p>
+              ) : null}
             </form>
           </div>
 

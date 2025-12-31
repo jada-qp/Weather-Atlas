@@ -28,3 +28,177 @@ html.dark body {
   background-color: #0b0b0f;
   color: #f4f4f0;
 }
+
+.weather-bg-clear {
+  background-color: #f4f1e9;
+  background-image: radial-gradient(circle at 15% 20%, #fff7e1 0%, transparent 45%),
+    radial-gradient(circle at 80% 10%, #e7f4ff 0%, transparent 40%),
+    linear-gradient(135deg, #f4f1e9 0%, #efe8dd 100%);
+}
+
+.weather-bg-clouds {
+  background-color: #e9ecef;
+  background-image: radial-gradient(circle at 20% 10%, #f7f9fb 0%, transparent 45%),
+    radial-gradient(circle at 80% 25%, #dfe6ee 0%, transparent 40%),
+    linear-gradient(135deg, #e9ecef 0%, #d8dde3 100%);
+}
+
+.weather-bg-rain {
+  background-color: #dfe6ec;
+  background-image: radial-gradient(circle at 20% 0%, #eaf1f7 0%, transparent 45%),
+    linear-gradient(145deg, #dfe6ec 0%, #c9d4dd 100%);
+}
+
+.weather-bg-snow {
+  background-color: #f7f8fb;
+  background-image: radial-gradient(circle at 20% 20%, #ffffff 0%, transparent 45%),
+    radial-gradient(circle at 80% 0%, #eef2f7 0%, transparent 40%),
+    linear-gradient(145deg, #f7f8fb 0%, #e7edf4 100%);
+}
+
+.weather-bg-mist {
+  background-color: #e6ecef;
+  background-image: linear-gradient(140deg, #e6ecef 0%, #d6dde2 100%);
+}
+
+html.dark .weather-bg-clear {
+  background-color: #0d0f14;
+  background-image: radial-gradient(circle at 10% 20%, rgba(255, 225, 140, 0.15) 0%, transparent 40%),
+    radial-gradient(circle at 70% 10%, rgba(120, 210, 255, 0.12) 0%, transparent 45%),
+    linear-gradient(135deg, #0d0f14 0%, #0b0d12 100%);
+}
+
+html.dark .weather-bg-clouds {
+  background-color: #11151b;
+  background-image: radial-gradient(circle at 20% 10%, rgba(255, 255, 255, 0.08) 0%, transparent 45%),
+    linear-gradient(135deg, #11151b 0%, #0b0e13 100%);
+}
+
+html.dark .weather-bg-rain {
+  background-color: #0c1116;
+  background-image: radial-gradient(circle at 20% 0%, rgba(140, 180, 210, 0.12) 0%, transparent 45%),
+    linear-gradient(145deg, #0c1116 0%, #0b0f14 100%);
+}
+
+html.dark .weather-bg-snow {
+  background-color: #0f1217;
+  background-image: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.12) 0%, transparent 45%),
+    linear-gradient(145deg, #0f1217 0%, #0a0d12 100%);
+}
+
+html.dark .weather-bg-mist {
+  background-color: #0f1419;
+  background-image: linear-gradient(140deg, #0f1419 0%, #0a0d12 100%);
+}
+
+.weather-effect {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  z-index: 0;
+}
+
+.weather-orbs {
+  z-index: 1;
+}
+
+.weather-effect--rain,
+.weather-effect--snow,
+.weather-effect--mist {
+  opacity: 1;
+}
+
+.weather-effect__layer {
+  position: absolute;
+  inset: -20% 0;
+  background-repeat: repeat;
+  opacity: 0.35;
+  transform: translateY(-20%);
+}
+
+.weather-effect__layer--secondary {
+  opacity: 0.18;
+}
+
+.weather-effect--rain .weather-effect__layer {
+  background-image: repeating-linear-gradient(
+    120deg,
+    rgba(15, 23, 42, 0) 0,
+    rgba(15, 23, 42, 0) 60%,
+    rgba(15, 23, 42, 0.35) 61%,
+    rgba(15, 23, 42, 0.35) 62%
+  );
+  background-size: 160px 240px;
+  animation: rain-fall 0.9s linear infinite;
+}
+
+.weather-effect--rain .weather-effect__layer--secondary {
+  background-size: 220px 300px;
+  animation-duration: 1.4s;
+}
+
+.weather-effect--snow .weather-effect__layer {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.5) 0, rgba(255, 255, 255, 0.5) 2px, transparent 3px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.35) 0, rgba(255, 255, 255, 0.35) 1.5px, transparent 3px);
+  background-size: 120px 120px, 160px 160px;
+  animation: snow-fall 6s linear infinite;
+}
+
+.weather-effect--snow .weather-effect__layer--secondary {
+  background-size: 180px 180px, 220px 220px;
+  animation-duration: 8s;
+}
+
+.weather-effect--mist .weather-effect__layer {
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.05) 60%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  filter: blur(6px);
+  animation: mist-drift 12s ease-in-out infinite;
+}
+
+.weather-effect--mist .weather-effect__layer--secondary {
+  animation-duration: 18s;
+  opacity: 0.12;
+}
+
+@keyframes rain-fall {
+  0% {
+    transform: translateY(-20%) translateX(0);
+  }
+  100% {
+    transform: translateY(20%) translateX(10%);
+  }
+}
+
+@keyframes snow-fall {
+  0% {
+    transform: translateY(-15%) translateX(0);
+  }
+  100% {
+    transform: translateY(20%) translateX(-6%);
+  }
+}
+
+@keyframes mist-drift {
+  0% {
+    transform: translateY(-5%) translateX(0);
+  }
+  50% {
+    transform: translateY(0) translateX(3%);
+  }
+  100% {
+    transform: translateY(-5%) translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weather-effect__layer {
+    animation: none;
+  }
+}
