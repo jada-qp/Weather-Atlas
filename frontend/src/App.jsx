@@ -6,6 +6,7 @@ const prefersDark = () =>
 const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const defaultLocation = "Berlin";
 const defaultLocations = ["Copenhagen", "Kyoto", "Berlin", "Dubai"];
+const maxLocations = 6;
 
 const loadLocations = () => {
   try {
@@ -22,12 +23,24 @@ const loadLocations = () => {
   return defaultLocations;
 };
 
+const loadSavedTemps = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("savedTemps") || "null");
+    if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+      return saved;
+    }
+  } catch {
+    // Ignore malformed stored data.
+  }
+  return {};
+};
+
 const normalizeLocations = (value) =>
   value
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean)
-    .slice(0, 6);
+    .slice(0, maxLocations);
 
 const formatValue = (value, suffix = "") => {
   if (value === undefined || value === null) return "--";
@@ -76,8 +89,11 @@ export default function App() {
   );
   const [activeLocation, setActiveLocation] = useState(defaultLocation);
   const [input, setInput] = useState(defaultLocation);
+  const [newLocation, setNewLocation] = useState("");
   const [weather, setWeather] = useState(null);
   const [weatherCache, setWeatherCache] = useState({});
+  const [savedTemps, setSavedTemps] = useState(() => loadSavedTemps());
+  const [loadingTemps, setLoadingTemps] = useState({});
   const [extended, setExtended] = useState(false);
   const [extendedData, setExtendedData] = useState(null);
   const [extendedCache, setExtendedCache] = useState({});
@@ -96,18 +112,38 @@ export default function App() {
   }, [quickLocations]);
 
   useEffect(() => {
+    localStorage.setItem("savedTemps", JSON.stringify(savedTemps));
+  }, [savedTemps]);
+
+  useEffect(() => {
     setExtended(false);
     setExtendedData(null);
     setExtendedStatus("idle");
     setExtendedError("");
   }, [activeLocation]);
 
+  const recordSavedTemp = (location, data) => {
+    const temp = data?.current?.temperature;
+    if (temp === undefined || temp === null) return;
+    const fetchedAt = data?.fetchedAt || new Date().toISOString();
+    const key =
+      quickLocations.find(
+        (item) => item.toLowerCase() === location.toLowerCase()
+      ) || location;
+    setSavedTemps((prev) => ({
+      ...prev,
+      [key]: { temperature: temp, fetchedAt },
+    }));
+  };
+
   const fetchWeather = async (location, { force = false } = {}) => {
     const cleaned = location.trim();
     if (!cleaned) return;
     setActiveLocation(cleaned);
     if (!force && weatherCache[cleaned]) {
-      setWeather(weatherCache[cleaned]);
+      const cached = weatherCache[cleaned];
+      setWeather(cached);
+      recordSavedTemp(cleaned, cached);
       setStatus("ready");
       setError("");
       return;
@@ -124,10 +160,31 @@ export default function App() {
       }
       setWeather(data);
       setWeatherCache((prev) => ({ ...prev, [cleaned]: data }));
+      recordSavedTemp(cleaned, data);
       setStatus("ready");
     } catch (err) {
       setStatus("error");
       setError(err.message || "Unable to fetch weather data");
+    }
+  };
+
+  const fetchQuickTemperature = async (location) => {
+    const cleaned = location.trim();
+    if (!cleaned) return;
+    setLoadingTemps((prev) => ({ ...prev, [cleaned]: true }));
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/weather?query=${encodeURIComponent(cleaned)}`
+      );
+      const data = await response.json();
+      if (!response.ok || data?.error) {
+        throw new Error(data?.error || "Unable to fetch weather data");
+      }
+      setWeatherCache((prev) => ({ ...prev, [cleaned]: data }));
+      recordSavedTemp(cleaned, data);
+    } catch {
+    } finally {
+      setLoadingTemps((prev) => ({ ...prev, [cleaned]: false }));
     }
   };
 
@@ -190,6 +247,7 @@ export default function App() {
   const forecastDays = extendedData?.forecast || [];
   const historyNote = extendedData?.historyError || "";
   const forecastNote = extendedData?.forecastError || "";
+  const isAtMaxLocations = quickLocations.length >= maxLocations;
 
   return (
     <div
@@ -479,9 +537,98 @@ export default function App() {
           ))}
         </section>
 
-        <section className="flex flex-col gap-3 text-xs uppercase tracking-[0.3em] text-stone-500 dark:text-stone-400">
-          <span>React - Tailwind - Express</span>
-          <span>WeatherAPI - Minimal - Calm</span>
+        <section className="space-y-4">
+          <p className="text-xs uppercase tracking-[0.3em] text-stone-500 dark:text-stone-400">
+            Default cities
+          </p>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {quickLocations.map((location) => {
+                const saved = savedTemps[location];
+                const tempValue = saved?.temperature;
+                const updatedLabel = formatUpdatedAt(saved?.fetchedAt);
+                const isLoading = loadingTemps[location];
+                return (
+                  <div
+                    key={location}
+                    className="rounded-2xl border border-stone-200 bg-white/60 p-5 text-left text-sm text-stone-600 shadow-sm transition hover:-translate-y-1 hover:border-stone-300 hover:shadow-md dark:border-stone-800 dark:bg-neutral-900/70 dark:text-stone-300"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500 dark:text-stone-400">
+                          {location}
+                        </p>
+                        <div className="mt-3 text-3xl font-semibold text-stone-900 dark:text-stone-100">
+                          {formatValue(tempValue, " C")}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInput(location);
+                          fetchWeather(location);
+                        }}
+                        className="rounded-full border border-stone-300 px-3 py-2 text-[10px] uppercase tracking-[0.3em] text-stone-600 transition hover:border-stone-500 hover:text-stone-900 dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-400"
+                      >
+                        View
+                      </button>
+                    </div>
+                    <p className="mt-3 text-[10px] uppercase tracking-[0.3em] text-stone-400 dark:text-stone-500">
+                      {updatedLabel ? `Last update ${updatedLabel}` : "Not loaded yet"}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => fetchQuickTemperature(location)}
+                      disabled={isLoading}
+                      className="mt-3 inline-flex rounded-full border border-stone-300 px-4 py-2 text-[10px] uppercase tracking-[0.35em] transition hover:border-stone-500 hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-400"
+                    >
+                      {isLoading
+                        ? "Loading"
+                        : tempValue === undefined || tempValue === null
+                        ? "Load"
+                        : "Refresh"}
+                    </button>
+                  </div>
+                );
+              })}
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                const cleaned = newLocation.trim();
+                if (!cleaned || isAtMaxLocations) return;
+                setQuickLocations((prev) => {
+                  const exists = prev.some(
+                    (item) => item.toLowerCase() === cleaned.toLowerCase()
+                  );
+                  if (exists) return prev;
+                  return [...prev, cleaned].slice(0, maxLocations);
+                });
+                setNewLocation("");
+              }}
+              className="rounded-2xl border border-dashed border-stone-300 bg-white/50 p-5 text-left text-sm text-stone-600 shadow-sm dark:border-stone-700 dark:bg-neutral-900/60 dark:text-stone-300"
+            >
+              <p className="text-[10px] uppercase tracking-[0.3em] text-stone-500 dark:text-stone-400">
+                Add city
+              </p>
+              <input
+                type="text"
+                value={newLocation}
+                onChange={(event) => setNewLocation(event.target.value)}
+                placeholder="Reykjavik"
+                disabled={isAtMaxLocations}
+                className="mt-3 w-full rounded-full border border-stone-300 bg-white/70 px-4 py-2 text-xs tracking-[0.2em] text-stone-700 shadow-sm transition focus:border-stone-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 dark:border-stone-700 dark:bg-neutral-900/60 dark:text-stone-100 dark:focus:border-stone-400"
+              />
+              <button
+                type="submit"
+                disabled={isAtMaxLocations}
+                className="mt-3 inline-flex rounded-full border border-stone-300 px-4 py-2 text-[10px] uppercase tracking-[0.35em] transition hover:border-stone-500 hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-400"
+              >
+                Add
+              </button>
+              <p className="mt-2 text-[10px] uppercase tracking-[0.3em] text-stone-400 dark:text-stone-500">
+                {isAtMaxLocations ? "Limit reached" : `Up to ${maxLocations} cities`}
+              </p>
+            </form>
+          </div>
         </section>
       </main>
       {extended ? (
