@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const prefersDark = () =>
   window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -7,6 +7,8 @@ const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
 const defaultLocation = "Berlin";
 const defaultLocations = ["Copenhagen", "Kyoto", "Berlin", "Dubai"];
 const maxLocations = 6;
+const maxRecent = 6;
+const defaultUnits = { temp: "c", speed: "kph" };
 
 const loadLocations = () => {
   try {
@@ -35,6 +37,36 @@ const loadSavedTemps = () => {
   return {};
 };
 
+const loadUnits = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("units") || "null");
+    if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+      return {
+        temp: saved.temp === "f" ? "f" : "c",
+        speed: saved.speed === "mph" ? "mph" : "kph",
+      };
+    }
+  } catch {
+    // Ignore malformed stored data.
+  }
+  return defaultUnits;
+};
+
+const loadRecentSearches = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("recentSearches") || "null");
+    if (Array.isArray(saved)) {
+      return saved
+        .map((item) => String(item).trim())
+        .filter(Boolean)
+        .slice(0, maxRecent);
+    }
+  } catch {
+    // Ignore malformed stored data.
+  }
+  return [];
+};
+
 const normalizeLocations = (value) =>
   value
     .split(",")
@@ -45,6 +77,26 @@ const normalizeLocations = (value) =>
 const formatValue = (value, suffix = "") => {
   if (value === undefined || value === null) return "--";
   return `${value}${suffix}`;
+};
+
+const toFahrenheit = (value) => (value * 9) / 5 + 32;
+const toMph = (value) => value / 1.60934;
+
+const formatTemp = (value, unit) => {
+  if (value === undefined || value === null) return "--";
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return "--";
+  const converted = unit === "f" ? toFahrenheit(numeric) : numeric;
+  return `${Math.round(converted)} ${unit.toUpperCase()}`;
+};
+
+const formatSpeed = (value, unit) => {
+  if (value === undefined || value === null) return "--";
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return "--";
+  const converted = unit === "mph" ? toMph(numeric) : numeric;
+  const suffix = unit === "mph" ? "mph" : "km/h";
+  return `${Math.round(converted)} ${suffix}`;
 };
 
 const formatShortDate = (value) => {
@@ -82,6 +134,7 @@ export default function App() {
     if (saved === "light") return false;
     return prefersDark();
   });
+  const [units, setUnits] = useState(() => loadUnits());
   const [quickLocations, setQuickLocations] = useState(() => loadLocations());
   const [isEditingLocations, setIsEditingLocations] = useState(false);
   const [locationsDraft, setLocationsDraft] = useState(() =>
@@ -89,8 +142,14 @@ export default function App() {
   );
   const [activeLocation, setActiveLocation] = useState(defaultLocation);
   const [input, setInput] = useState(defaultLocation);
+  const [recentSearches, setRecentSearches] = useState(() =>
+    loadRecentSearches()
+  );
   const [newLocation, setNewLocation] = useState("");
   const [isAddingLocation, setIsAddingLocation] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [geoError, setGeoError] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [effectOverride, setEffectOverride] = useState("");
   const [weather, setWeather] = useState(null);
   const [weatherCache, setWeatherCache] = useState({});
@@ -103,6 +162,8 @@ export default function App() {
   const [extendedError, setExtendedError] = useState("");
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
+  const modalRef = useRef(null);
+  const closeButtonRef = useRef(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
@@ -118,11 +179,87 @@ export default function App() {
   }, [savedTemps]);
 
   useEffect(() => {
+    localStorage.setItem("units", JSON.stringify(units));
+  }, [units]);
+
+  useEffect(() => {
+    localStorage.setItem("recentSearches", JSON.stringify(recentSearches));
+  }, [recentSearches]);
+
+  useEffect(() => {
     setExtended(false);
     setExtendedData(null);
     setExtendedStatus("idle");
     setExtendedError("");
   }, [activeLocation]);
+
+  useEffect(() => {
+    if (!extended) return;
+    const container = modalRef.current;
+    const focusableSelector =
+      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setExtended(false);
+        return;
+      }
+      if (event.key !== "Tab" || !container) return;
+      const focusable = Array.from(
+        container.querySelectorAll(focusableSelector)
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    closeButtonRef.current?.focus();
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [extended]);
+
+  const addRecentSearch = (value) => {
+    const cleaned = value.trim();
+    if (!cleaned) return;
+    setRecentSearches((prev) => {
+      const next = [
+        cleaned,
+        ...prev.filter(
+          (item) => item.toLowerCase() !== cleaned.toLowerCase()
+        ),
+      ];
+      return next.slice(0, maxRecent);
+    });
+  };
+
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      setGeoError("Geolocation is not supported in this browser.");
+      return;
+    }
+    setIsLocating(true);
+    setGeoError("");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const query = `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
+        setInput(query);
+        fetchWeather(query, { force: true });
+        setIsLocating(false);
+      },
+      () => {
+        setIsLocating(false);
+        setGeoError("Unable to access your location. Check permissions.");
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+    );
+  };
 
   const recordSavedTemp = (location, data) => {
     const temp = data?.current?.temperature;
@@ -141,17 +278,21 @@ export default function App() {
   const fetchWeather = async (location, { force = false } = {}) => {
     const cleaned = location.trim();
     if (!cleaned) return;
+    setGeoError("");
     setActiveLocation(cleaned);
     if (!force && weatherCache[cleaned]) {
       const cached = weatherCache[cleaned];
       setWeather(cached);
       recordSavedTemp(cleaned, cached);
+      addRecentSearch(cleaned);
       setStatus("ready");
       setError("");
+      setShowSuggestions(false);
       return;
     }
     setStatus("loading");
     setError("");
+    setShowSuggestions(false);
     try {
       const response = await fetch(
         `${apiUrl}/api/weather?query=${encodeURIComponent(cleaned)}`
@@ -163,6 +304,7 @@ export default function App() {
       setWeather(data);
       setWeatherCache((prev) => ({ ...prev, [cleaned]: data }));
       recordSavedTemp(cleaned, data);
+      addRecentSearch(cleaned);
       setStatus("ready");
     } catch (err) {
       setStatus("error");
@@ -197,6 +339,7 @@ export default function App() {
     if (!cached) return;
     setActiveLocation(cleaned);
     setWeather(cached);
+    addRecentSearch(cleaned);
     setStatus("ready");
     setError("");
   };
@@ -231,9 +374,18 @@ export default function App() {
 
   const locationLabel = weather?.location
     ? `${weather.location.name}, ${weather.location.country}`
+    : status === "idle"
+    ? "Waiting for a city"
     : activeLocation;
   const localTime = weather?.location?.localtime || "";
   const description = weather?.current?.weather_descriptions?.[0] || "";
+  const descriptionLabel =
+    description ||
+    (status === "error"
+      ? "Unable to load conditions"
+      : status === "idle"
+      ? "Search for a city to see live conditions."
+      : "No description yet");
   const icon = weather?.current?.weather_icons?.[0];
   const temperature = weather?.current?.temperature;
   const feelsLike = weather?.current?.feelslike;
@@ -246,12 +398,13 @@ export default function App() {
   const lastUpdatedLabel = formatUpdatedAt(weather?.fetchedAt);
   const weatherEffect = getWeatherEffect(description);
   const activeEffect = effectOverride || weatherEffect;
+  const windValue =
+    windSpeed === undefined || windSpeed === null
+      ? "--"
+      : `${formatSpeed(windSpeed, units.speed)} ${windDir || ""}`.trim();
 
   const metrics = [
-    {
-      label: "Wind",
-      value: `${formatValue(windSpeed, " km/h")} ${windDir || ""}`.trim(),
-    },
+    { label: "Wind", value: windValue },
     { label: "Humidity", value: formatValue(humidity, "%") },
     { label: "Pressure", value: formatValue(pressure, " mb") },
     { label: "Visibility", value: formatValue(visibility, " km") },
@@ -262,6 +415,37 @@ export default function App() {
   const historyNote = extendedData?.historyError || "";
   const forecastNote = extendedData?.forecastError || "";
   const isAtMaxLocations = quickLocations.length >= maxLocations;
+  const statusMessage = (() => {
+    if (geoError) return geoError;
+    if (status === "loading") return "Gathering conditions...";
+    if (status === "error")
+      return `${error} Try another city or check your connection.`;
+    if (status === "ready")
+      return localTime ? `Local time ${localTime}` : "Weather updated";
+    return "Search for a city or choose a quick location.";
+  })();
+  const suggestionItems = (() => {
+    const needle = input.trim().toLowerCase();
+    if (!needle) return [];
+    const combined = [
+      ...recentSearches,
+      ...quickLocations,
+      ...Object.keys(weatherCache),
+    ];
+    const seen = new Set();
+    const results = [];
+    for (const item of combined) {
+      const cleaned = String(item).trim();
+      if (!cleaned) continue;
+      const lower = cleaned.toLowerCase();
+      if (!lower.includes(needle) || lower === needle) continue;
+      if (seen.has(lower)) continue;
+      seen.add(lower);
+      results.push(cleaned);
+      if (results.length >= 6) break;
+    }
+    return results;
+  })();
 
   return (
     <div
@@ -279,13 +463,13 @@ export default function App() {
         <div className="absolute bottom-0 left-0 h-64 w-64 rounded-full bg-emerald-200/30 blur-3xl animate-float-slow dark:bg-emerald-400/10" />
       </div>
 
-      <div className="relative z-10 mx-auto w-full max-w-5xl px-6 pt-8">
+      <div className="relative z-10 mx-auto w-full max-w-5xl px-4 pt-6 sm:px-6 sm:pt-8">
         <nav
           aria-label="Location switcher"
-          className="flex flex-wrap items-center justify-between gap-4 rounded-full border border-stone-200 bg-white/70 px-5 py-3 text-xs uppercase tracking-[0.35em] text-stone-500 shadow-sm backdrop-blur-md animate-fade-in transition hover:-translate-y-0.5 hover:shadow-md dark:border-stone-800 dark:bg-neutral-900/70 dark:text-stone-400"
+          className="flex flex-col items-start justify-between gap-3 rounded-3xl border border-stone-200 bg-white/70 px-4 py-3 text-xs uppercase tracking-[0.35em] text-stone-500 shadow-sm backdrop-blur-md animate-fade-in transition hover:-translate-y-0.5 hover:shadow-md sm:flex-row sm:items-center sm:gap-4 sm:rounded-full sm:px-5 dark:border-stone-800 dark:bg-neutral-900/70 dark:text-stone-400"
         >
           <span className="text-[10px] tracking-[0.4em]">Locations</span>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
             {quickLocations.map((location) => {
               const isActive = activeLocation === location;
               return (
@@ -316,7 +500,7 @@ export default function App() {
               }
               setIsEditingLocations((value) => !value);
             }}
-            className="rounded-full border border-stone-300 px-4 py-2 text-[10px] tracking-[0.35em] transition hover:border-stone-500 hover:text-stone-900 dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-400"
+            className="w-full rounded-full border border-stone-300 px-4 py-2 text-[10px] tracking-[0.35em] transition hover:border-stone-500 hover:text-stone-900 sm:w-auto dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-400"
           >
             {isEditingLocations ? "Close" : "Edit"}
           </button>
@@ -367,7 +551,7 @@ export default function App() {
         ) : null}
       </div>
 
-        <header className="relative z-10 mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-6">
+        <header className="relative z-10 mx-auto flex w-full max-w-5xl flex-col items-start justify-between gap-4 px-4 py-6 sm:flex-row sm:items-center sm:px-6">
         <div className="group flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-full border border-stone-300 bg-white/70 shadow-sm backdrop-blur-md transition group-hover:-translate-y-0.5 dark:border-stone-700 dark:bg-neutral-900/70">
             <svg
@@ -394,16 +578,78 @@ export default function App() {
             </div>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setDarkMode((value) => !value)}
-          className="rounded-full border border-stone-300 px-4 py-2 text-xs uppercase tracking-[0.25em] transition hover:border-stone-500 hover:text-stone-800 dark:border-stone-700 dark:text-stone-200 dark:hover:border-stone-400"
-        >
-          {darkMode ? "Light" : "Dark"}
-        </button>
+        <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
+          <div className="flex w-full overflow-hidden rounded-full border border-stone-300 text-[10px] uppercase tracking-[0.3em] text-stone-600 sm:w-auto dark:border-stone-700 dark:text-stone-300">
+            <button
+              type="button"
+              onClick={() =>
+                setUnits((prev) => ({ ...prev, temp: "c" }))
+              }
+              aria-pressed={units.temp === "c"}
+              className={`px-3 py-2 transition ${
+                units.temp === "c"
+                  ? "bg-stone-900 text-stone-50 dark:bg-stone-50 dark:text-stone-900"
+                  : "hover:bg-stone-100 dark:hover:bg-stone-800"
+              }`}
+            >
+              C
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setUnits((prev) => ({ ...prev, temp: "f" }))
+              }
+              aria-pressed={units.temp === "f"}
+              className={`px-3 py-2 transition ${
+                units.temp === "f"
+                  ? "bg-stone-900 text-stone-50 dark:bg-stone-50 dark:text-stone-900"
+                  : "hover:bg-stone-100 dark:hover:bg-stone-800"
+              }`}
+            >
+              F
+            </button>
+          </div>
+          <div className="flex w-full overflow-hidden rounded-full border border-stone-300 text-[10px] uppercase tracking-[0.25em] text-stone-600 sm:w-auto dark:border-stone-700 dark:text-stone-300">
+            <button
+              type="button"
+              onClick={() =>
+                setUnits((prev) => ({ ...prev, speed: "kph" }))
+              }
+              aria-pressed={units.speed === "kph"}
+              className={`px-3 py-2 transition ${
+                units.speed === "kph"
+                  ? "bg-stone-900 text-stone-50 dark:bg-stone-50 dark:text-stone-900"
+                  : "hover:bg-stone-100 dark:hover:bg-stone-800"
+              }`}
+            >
+              km/h
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setUnits((prev) => ({ ...prev, speed: "mph" }))
+              }
+              aria-pressed={units.speed === "mph"}
+              className={`px-3 py-2 transition ${
+                units.speed === "mph"
+                  ? "bg-stone-900 text-stone-50 dark:bg-stone-50 dark:text-stone-900"
+                  : "hover:bg-stone-100 dark:hover:bg-stone-800"
+              }`}
+            >
+              mph
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDarkMode((value) => !value)}
+            className="w-full rounded-full border border-stone-300 px-4 py-2 text-xs uppercase tracking-[0.25em] transition hover:border-stone-500 hover:text-stone-800 sm:w-auto dark:border-stone-700 dark:text-stone-200 dark:hover:border-stone-400"
+          >
+            {darkMode ? "Light" : "Dark"}
+          </button>
+        </div>
       </header>
 
-      <main className="relative z-10 mx-auto flex w-full max-w-5xl flex-col gap-16 px-6 pb-16 pt-6">
+      <main className="relative z-10 mx-auto flex w-full max-w-5xl flex-col gap-16 px-4 pb-16 pt-6 sm:px-6">
         <section className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-6 animate-fade-up">
             <p className="text-xs uppercase tracking-[0.35em] text-stone-500 dark:text-stone-400">
@@ -428,80 +674,168 @@ export default function App() {
               }}
             >
               <div className="flex flex-wrap gap-3">
-                <input
-                  type="text"
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  placeholder="Search a city"
-                  className="w-full flex-1 rounded-full border border-stone-300 bg-white/70 px-5 py-3 text-sm text-stone-700 shadow-sm transition focus:border-stone-500 focus:outline-none dark:border-stone-700 dark:bg-neutral-900/60 dark:text-stone-100 dark:focus:border-stone-400"
-                />
+                <div className="relative w-full flex-1">
+                  <input
+                    type="text"
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    onFocus={() => setShowSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 120)}
+                    placeholder="Search a city"
+                    autoComplete="off"
+                    className="w-full rounded-full border border-stone-300 bg-white/70 px-5 py-3 text-sm text-stone-700 shadow-sm transition focus:border-stone-500 focus:outline-none dark:border-stone-700 dark:bg-neutral-900/60 dark:text-stone-100 dark:focus:border-stone-400"
+                  />
+                  {showSuggestions && suggestionItems.length ? (
+                    <div className="absolute z-20 mt-2 w-full rounded-2xl border border-stone-200 bg-white/95 py-2 text-xs uppercase tracking-[0.2em] text-stone-600 shadow-xl backdrop-blur-md dark:border-stone-800 dark:bg-neutral-900/95 dark:text-stone-300">
+                      <p className="px-4 pb-2 text-[10px] uppercase tracking-[0.3em] text-stone-400 dark:text-stone-500">
+                        Suggestions
+                      </p>
+                      <div className="max-h-48 overflow-auto pb-1">
+                        {suggestionItems.map((item) => (
+                          <button
+                            key={item}
+                            type="button"
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              setInput(item);
+                              fetchWeather(item, { force: true });
+                              setShowSuggestions(false);
+                            }}
+                            className="flex w-full items-center break-words px-4 py-2 text-left text-[10px] uppercase tracking-[0.25em] text-stone-600 transition hover:bg-stone-100/80 hover:text-stone-900 dark:text-stone-300 dark:hover:bg-stone-800/70 dark:hover:text-stone-50"
+                          >
+                            {item}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
                 <button
                   type="submit"
-                  className="rounded-full bg-stone-900 px-6 py-3 text-xs uppercase tracking-[0.3em] text-stone-50 transition hover:bg-stone-700 dark:bg-stone-50 dark:text-stone-900 dark:hover:bg-stone-200"
+                  className="w-full rounded-full bg-stone-900 px-6 py-3 text-center text-xs uppercase tracking-[0.3em] text-stone-50 transition hover:bg-stone-700 sm:w-auto dark:bg-stone-50 dark:text-stone-900 dark:hover:bg-stone-200"
                 >
                   Update
                 </button>
+                <button
+                  type="button"
+                  onClick={handleUseMyLocation}
+                  disabled={isLocating}
+                  className="w-full rounded-full border border-stone-300 px-5 py-3 text-center text-xs uppercase tracking-[0.3em] text-stone-600 transition hover:border-stone-500 hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-400"
+                >
+                  {isLocating ? "Locating" : "Use my location"}
+                </button>
               </div>
               <p className="text-xs uppercase tracking-[0.3em] text-stone-500 dark:text-stone-400">
-                {status === "loading" && "Gathering conditions"}
-                {status === "error" && error}
-                {status === "ready" && localTime && `Local time ${localTime}`}
-                {status === "ready" && !localTime && "Weather updated"}
-                {status === "idle" && "Pick a city to begin"}
+                {statusMessage}
               </p>
               {lastUpdatedLabel ? (
                 <p className="text-[10px] uppercase tracking-[0.3em] text-stone-400 dark:text-stone-500">
                   Last updated {lastUpdatedLabel}
                 </p>
               ) : null}
+              {recentSearches.length ? (
+                <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-stone-400 dark:text-stone-500">
+                  <span>Recent</span>
+                  {recentSearches.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => {
+                        setInput(item);
+                        fetchWeather(item, { force: true });
+                      }}
+                      className="rounded-full border border-stone-200 px-3 py-1 text-[9px] uppercase tracking-[0.3em] text-stone-500 transition hover:border-stone-400 hover:text-stone-800 dark:border-stone-700 dark:text-stone-400 dark:hover:border-stone-400 dark:hover:text-stone-200"
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </form>
           </div>
 
           <div className="rounded-3xl border border-stone-200 bg-white/70 p-8 shadow-lg backdrop-blur-md animate-fade-in dark:border-stone-800 dark:bg-neutral-900/70">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-stone-400">
-                  Current Conditions
-                </p>
-                <h2 className="mt-3 text-2xl font-semibold text-stone-800 dark:text-stone-100">
-                  {locationLabel}
-                </h2>
-                <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
-                  {description || "No description yet"}
-                </p>
-              </div>
-              {icon ? (
-                <img
-                  src={icon}
-                  alt={description || "Weather icon"}
-                  className="h-14 w-14 rounded-full bg-stone-100/70 p-2 dark:bg-stone-900/70"
-                  loading="lazy"
-                />
-              ) : null}
-            </div>
-            <div className="mt-8 flex items-end justify-between">
-              <div>
-                <div className="text-5xl font-semibold text-stone-900 dark:text-stone-50">
-                  {formatValue(temperature, " C")}
+            {status === "loading" ? (
+              <div className="space-y-6 animate-pulse">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-3">
+                    <div className="h-3 w-36 rounded-full bg-stone-200/80 dark:bg-stone-800/70" />
+                    <div className="h-6 w-48 rounded-full bg-stone-200/80 dark:bg-stone-800/70" />
+                    <div className="h-4 w-40 rounded-full bg-stone-200/80 dark:bg-stone-800/70" />
+                  </div>
+                  <div className="h-14 w-14 rounded-full bg-stone-200/80 dark:bg-stone-800/70" />
                 </div>
-                <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">
-                  Feels like {formatValue(feelsLike, " C")}
-                </p>
-              </div>
-              <div className="text-right text-sm text-stone-500 dark:text-stone-400">
-                {status === "ready" ? "Updated" : "Awaiting data"}
-              </div>
-            </div>
-            <div className="mt-8 space-y-4 text-sm text-stone-600 dark:text-stone-300">
-              {metrics.map((metric) => (
-                <div key={metric.label} className="flex items-center justify-between">
-                  <span>{metric.label}</span>
-                  <span className="text-stone-900 dark:text-stone-100">
-                    {metric.value}
-                  </span>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="space-y-3">
+                    <div className="h-10 w-28 rounded-full bg-stone-200/80 dark:bg-stone-800/70" />
+                    <div className="h-4 w-32 rounded-full bg-stone-200/80 dark:bg-stone-800/70" />
+                  </div>
+                  <div className="h-4 w-20 rounded-full bg-stone-200/80 dark:bg-stone-800/70" />
                 </div>
-              ))}
-            </div>
+                <div className="space-y-3">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <div key={index} className="flex items-center justify-between">
+                      <div className="h-3 w-24 rounded-full bg-stone-200/80 dark:bg-stone-800/70" />
+                      <div className="h-3 w-16 rounded-full bg-stone-200/80 dark:bg-stone-800/70" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.3em] text-stone-400">
+                      Current Conditions
+                    </p>
+                    <h2 className="mt-3 break-words text-2xl font-semibold text-stone-800 dark:text-stone-100">
+                      {locationLabel}
+                    </h2>
+                    <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
+                      {descriptionLabel}
+                    </p>
+                  </div>
+                  {icon ? (
+                    <img
+                      src={icon}
+                      alt={description || "Weather icon"}
+                      className="h-14 w-14 rounded-full bg-stone-100/70 p-2 dark:bg-stone-900/70"
+                      loading="lazy"
+                    />
+                  ) : null}
+                </div>
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <div className="text-4xl font-semibold text-stone-900 sm:text-5xl dark:text-stone-50">
+                      {formatTemp(temperature, units.temp)}
+                    </div>
+                    <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">
+                      Feels like {formatTemp(feelsLike, units.temp)}
+                    </p>
+                  </div>
+                  <div className="text-right text-sm text-stone-500 dark:text-stone-400">
+                    {status === "ready"
+                      ? "Updated"
+                      : status === "error"
+                      ? "Weather unavailable"
+                      : "Awaiting data"}
+                  </div>
+                </div>
+                <div className="mt-8 space-y-4 text-sm text-stone-600 dark:text-stone-300">
+                  {metrics.map((metric) => (
+                    <div
+                      key={metric.label}
+                      className="flex items-center justify-between"
+                    >
+                      <span>{metric.label}</span>
+                      <span className="text-stone-900 dark:text-stone-100">
+                        {metric.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
             <div className="mt-10 border-t border-stone-200 pt-6 dark:border-stone-800">
               <div className="flex flex-wrap items-center justify-between gap-3 text-xs uppercase tracking-[0.35em] text-stone-500 dark:text-stone-400">
                 <span>Extended Outlook</span>
@@ -547,7 +881,11 @@ export default function App() {
                           {location}
                         </p>
                         <div className="mt-3 text-3xl font-semibold text-stone-900 dark:text-stone-100">
-                          {formatValue(tempValue, " C")}
+                          {isLoading ? (
+                            <div className="h-8 w-20 rounded-full bg-stone-200/80 dark:bg-stone-800/70 animate-pulse" />
+                          ) : (
+                            formatTemp(tempValue, units.temp)
+                          )}
                         </div>
                       </div>
                       <button
@@ -563,7 +901,11 @@ export default function App() {
                       </button>
                     </div>
                     <p className="mt-3 text-[10px] uppercase tracking-[0.3em] text-stone-400 dark:text-stone-500">
-                      {updatedLabel ? `Last update ${updatedLabel}` : "Load to enable view"}
+                      {isLoading
+                        ? "Refreshing..."
+                        : updatedLabel
+                        ? `Last update ${updatedLabel}`
+                        : "Load to enable view"}
                     </p>
                     <button
                       type="button"
@@ -659,8 +1001,14 @@ export default function App() {
         </section>
       </main>
       {extended ? (
-        <div className="fixed inset-0 z-30 flex min-h-screen items-start justify-center overflow-y-auto bg-stone-950/80 px-6 py-10 text-stone-100 backdrop-blur-md">
-          <div className="relative w-full max-w-6xl rounded-3xl border border-stone-800 bg-neutral-950/90 p-8 shadow-2xl">
+        <div className="fixed inset-0 z-30 flex min-h-screen items-start justify-center overflow-y-auto bg-stone-950/80 px-4 py-6 text-stone-100 backdrop-blur-md sm:px-6 sm:py-10">
+          <div
+            ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Extended outlook"
+            className="relative w-full max-w-6xl rounded-3xl border border-stone-800 bg-neutral-950/90 p-5 shadow-2xl sm:p-8"
+          >
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.35em] text-stone-400">
@@ -684,6 +1032,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setExtended(false)}
+                  ref={closeButtonRef}
                   className="rounded-full border border-stone-700 px-4 py-2 text-[10px] uppercase tracking-[0.35em] text-stone-300 transition hover:border-stone-500 hover:text-stone-50"
                 >
                   Close
@@ -743,10 +1092,10 @@ export default function App() {
                             </div>
                           </div>
                           <div className="text-right text-sm text-stone-100">
-                            {formatValue(day.maxTemp, " C")}
+                            {formatTemp(day.maxTemp, units.temp)}
                             <span className="text-stone-500">
                               {" / "}
-                              {formatValue(day.minTemp, " C")}
+                              {formatTemp(day.minTemp, units.temp)}
                             </span>
                           </div>
                         </div>
@@ -797,10 +1146,10 @@ export default function App() {
                             </div>
                           </div>
                           <div className="text-right text-sm text-stone-100">
-                            {formatValue(day.maxTemp, " C")}
+                            {formatTemp(day.maxTemp, units.temp)}
                             <span className="text-stone-500">
                               {" / "}
-                              {formatValue(day.minTemp, " C")}
+                              {formatTemp(day.minTemp, units.temp)}
                             </span>
                           </div>
                         </div>
